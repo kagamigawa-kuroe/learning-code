@@ -67,3 +67,17 @@
    > ​     `git reset --mixed xxx`
    >
    > ​     这样之后，再重新整理add并且commit。
+
+4. >Q. 在一些情况下, 我们会在一个错误的主分支上提交我们的内容, 例如如果我们想将commit1提交到master1分支, 但是在提交后才发现不慎提交到了master2分支, 如果只有一次提交,自然是很好修改, 但如果有多次提交, 就得从头开始,那么就会相当麻烦.
+   >
+   >A. 这种情况有两种解决办法 一种为之前提到过的``cherrypick``, 可以参考Q1中的用法. 另一种办法是用``git rebase --onto``,这里重点解释这种方法.
+   >
+   >​     ``git rebase –onto <new-parent> <old-parent> <head-of-new-parent>``
+   >
+   >​     这里的new-parent是指想要移动过去的提交,也就是base,会在这次的提交上
+   >
+   >基础上在进行后续的提交
+   >
+   >​     如果没有第三个参数, old-parent是现在将被移动提交的上一次提交,也就是现在被截断,准备移动的第一个提交的上一次提交.
+   >
+   >​     如果有第三个参数,则不会将old-parent之后的提交全部移动,而是从head-of-new-parent提交开始,将后续的提交移动过去. 而在old-parent和head-of-new-parent中的提交则会被删除.

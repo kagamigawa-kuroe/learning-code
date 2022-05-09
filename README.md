@@ -1,2 +1,2 @@
-# learning-code
-my learning code
+# learning-note
+my learning note

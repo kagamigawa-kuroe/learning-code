@@ -1,4 +1,4 @@
-## design-patterns
+## design-patterns(1)
 
 #### 1. abstract factory
 
@@ -96,6 +96,61 @@ ConcreteFactory2 concreteFactory2;
 A2* pt3 = concreteFactory2.CreateProductA();
 B2* pt4 = concreteFactory2.CreateProductB();
 ```
+
+#### 2. factory method 
+
+---
+
+**Factory Method** is a creational design pattern that provides an interface for creating objects in a superclass and realise it in subclasses, return differents type of classes.
+
+For example, we have a super factory class A, and two sub factory classes A1,A2. 
+
+Beside we have a super product class P, and two sub product classes P1,P2.
+
+Factory A provide a interface ``P create()``, and in class A1,A2, we realize the interface, new and return P1 and P2 respectively.
+
+It's not so difficult, here is the code.
+
+``` c++
+class Product{
+  public:
+    int a;
+    void f1() = 0;
+}
+
+class Product1:public Product {
+  public:
+    void f1(){cout<<"product1"<,endl};
+}
+
+class Product2:public Product {
+  public:
+    void f1(){cout<<"product2"<,endl};
+}
+
+class Factory {
+ public:
+    product& create();
+}
+
+class Factory1:public Factory{
+  public:
+    product& create(){
+        product1 * p = new A1();
+        return *p;
+    }
+}
+
+class Factory2:public Factory{
+  public:
+    product& create(){
+        product1 * p = new A2();
+        return *p;
+    }
+}
+```
+
+
 
 
 

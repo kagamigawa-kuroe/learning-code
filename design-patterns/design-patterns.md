@@ -150,6 +150,52 @@ class Factory2:public Factory{
 }
 ```
 
+#### 3. Builder
+
+---
+
+Builder Pattern is a design pattern who can help you generate an instance of the same class with different attributions.
+
+Such as we have a class P with 3 attributions a1, a2, a3, for every  attribution it has several option. Now we want to set the value of those attribution by a new class, **Builder**.
+
+In different variants of class builder, we implement interface of attribution value setter function, for different classes we want to create.
+
+Here is a example:
+
+```c++
+class P {
+ public:
+  int a;
+  int b;
+}
+
+class abstractbuilderofP {
+  public:
+    P* p;
+    virtual void set_a() = 0;
+    virtual void set_b() = 0;
+    virtual P& make() = 0;
+}
+
+class builder1:public abstractbuilderofP{
+  builder1(){this->P = new P()};
+  void set_a(){p->a = 1};
+  void set_b(){p->b = 1};
+  P& make(){this->set_a();this->set_b();return *p;}
+}
+
+class builder2:public abstractbuilderofP{
+  builder2(){this->P = new P()};
+  void set_a(){p->a = 2};
+  void set_b(){p->b = 2};
+  P& make(){this->set_a();this->set_b();return *p;}
+}
+```
+
+So now, if we want an instance of class P with value 1 and 1, we request it by builder1 and for 2 and 2, obviously by builder2.
+
+if you want to do encapsulation of the create function, make add new class director and pass builder as a parameter or a attribution of it, it will make sense.
+
 
 
 

@@ -191,5 +191,211 @@ kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future versi
 bin   dev   etc   home  proc  root  sys   tmp   usr   var
 ```
 
+#### pod lifecycle
 
+The time range from creation to completion of a POD object is commonly referred to as the pod life cycle, which consists of the following processes:
+
+- creation of pod
+- run init container
+- run main container
+
+  - lifecycle hock when pod start (post start)、lifecycle hock before pod stop (pre stop)
+
+  - liveness probe、readiness probe
+- pod stop
+
+<img src="./image/image-20200412111402706.png" alt="image-20200412111402706" style="border:solid 1px" />
+
+Throughout its life cycle, a POD appears in five different status, as follows:
+
+- Pending：Apiserver has created the POD resource object, but it has not yet been scheduled or is in the process of downloading the image
+- Running：The POD has been scheduled to a node and all containers have been created by Kubelet
+- Succeeded：All containers in the POD have successfully terminated and will not be restarted
+- Failed：All containers have terminated, but at least one container failed to terminate, that is, the container returned an exit status with a non-zero value
+- Unknown：Apiserver fails to obtain the status information of the POD object, which is usually caused by a network communication failure
+
+---
+
+#### Pod creation process
+
+1. The user submits the POD information to the API Server through Kubectl or other API clients
+
+2. The API Server starts generating information about the POD object, stores the information into etCD, and then returns confirmation information to the client
+
+3. API Server starts to reflect changes to pod objects in ETCD, and other components use the Watch mechanism to track changes on API Server
+
+4. The Scheduler finds a new POD object to create, starts assigning hosts to pods and updates the resulting information to API Server
+
+5. Kubelet on node finds pod scheduling, tries to call docker to start the container, and sends the result back to API server
+
+6. The API Server stores the received POD status information into the ETCD
+
+#### Termination process for pod 
+
+1. The user sends the command to the API Server to delete the POD object
+2. The POD object information in the API Servcer is updated over time, and during the grace period (default 30s), the POD is considered dead
+3. Mark the POD as terminating
+4. Kubelet starts the POD shutdown process when it monitors the pod object's terminating state
+5. The endpoint controller monitors the shutdown behavior of a POD object and removes it from the list of endpoints for all service resources matching this endpoint
+6. If the current POD object defines a Pre Stop hook handler, execution will start synchronously when it is marked terminating
+7. The container process in the POD object receives a stop signal
+8. After the grace period, if there are still running processes in the POD, the POD object receives a signal to terminate immediately
+9. Kubelet requests the API Server to set the grace period for this POD resource to 0 to complete the deletion operation, at which point the POD is no longer visible to the user
+
+---
+
+### Initialize the container
+
+The initialization container is the container that runs before the pod's main container is started. It does some pre-loading of the main container. It has two characteristics:
+
+1. The initialization container must run until complete. If an initialization container fails, Kubernetes needs to restart it until it completes successfully
+2. Initializing containers must be done in a defined order, with subsequent containers running if and only if the current one succeeds
+
+There are many application scenarios for initializing containers. The following are some of the most common:
+
+- Provides utilities or custom code that are not available in the main container image
+- The initialization container starts and runs sequentially before the application container, so it can be used to delay the start of the application container until its dependent conditions are met
+
+A example :
+
+Suppose you want to run nginx as the main container, but you need to be able to connect to mysql and Redis servers before you can run nginx .
+
+We can add two init container to make sure we have mysql and redis.
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-initcontainer
+  namespace: dev
+spec:
+  containers:
+  - name: main-container
+    image: nginx:1.17.1
+    ports: 
+    - name: nginx-port
+      containerPort: 80
+  initContainers:
+  - name: test-mysql
+    image: busybox:1.30
+    command: ['sh', '-c', 'until ping 192.168.109.201 -c 1 ; do echo waiting for mysql...; sleep 2; done;']
+  - name: test-redis
+    image: busybox:1.30
+    command: ['sh', '-c', 'until ping 192.168.109.202 -c 1 ; do echo waiting for reids...; sleep 2; done;']
+```
+
+### Hook function
+
+Hook functions can sense events in their lifecycle and run user-specified program code when the appropriate time comes.
+
+Kubernetes provides two hook functions after the main container starts and before it stops:
+
+- post start：Execute after the container is created, or restart the container if it fails
+- pre stop  ：Execute before the container terminates, after which the container terminates successfully, blocking the operation to delete the container until it completes
+
+The hook handler supports defining actions in one of three ways:
+
+- Exec command: Executes a command within the container
+
+```
+  lifecycle:
+    postStart: 
+      exec:
+        command:
+        - cat
+        - /tmp/hello.txt
+```
+
+- TCPSocket：try to access referred socket in current container
+
+```
+  lifecycle:
+    postStart:
+      tcpSocket:
+        port: 8080
+```
+
+- HttpGET: sends an HTTP request to a URL in the current container
+
+```
+  lifecycle:
+    postStart:
+      httpGet:
+        path: /
+        port: 80 
+        host: 192.168.109.100 
+        scheme: HTTP 
+```
+
+#### Container detection
+
+Container detection is a traditional mechanism used to check whether application instances in containers are working properly to ensure service availability. If the instance is not detected as expected, Kubernetes removes the instance from service. Kubernetes provides two types of probes for container probing:
+
+- liveness probes：This command is used to check whether the application instance is running properly
+
+- readiness probes：This command is used to check whether the application instance can receive requests
+
+Liveness Probe determines whether to restart the container. Readiness Probe determines whether to forward requests to the container.
+
+Probes also has three ways to realize, really same with hook function.
+
+```bash
+# example
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-liveness-exec
+  namespace: dev
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.17.1
+    ports: 
+    - name: nginx-port
+      containerPort: 80
+    # Exec command: executes a command in the container. If the exit code of the command execution is 0, the program is considered normal; otherwise, it is abnormal
+    livenessProbe:
+      exec:
+        command: ["/bin/cat","/tmp/hello.txt"] 
+    # or
+    # tcpSocket will be made to access the port of a user container, and if the connection can be established, the program is considered normal, otherwise it is not
+    livenessProbe:
+      tcpSocket:
+        port: 8080 # Attempt to access port 8080
+    # or
+    # Call the URL of the Web application in the container. If the status code returned is between 200 and 399, the program is considered normal; otherwise, it is abnormal
+    livenessProbe:
+    tcpSocket:
+      port: 8080
+```
+
+#### 重启策略
+
+In the previous section, kubernetes will restart the pod in which the container is located if there is a problem with the probe. This is determined by the pod restart policy.
+
+- Always ：The container restarts automatically when it fails, which is also the default.
+- OnFailure ： Restart when the container terminates and the exit code is not 0
+- Never ： Do not restart the container regardless of its state
+
+```yaml
+# example
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-restartpolicy
+  namespace: dev
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.17.1
+    ports:
+    - name: nginx-port
+      containerPort: 80
+    livenessProbe:
+      httpGet:
+        scheme: HTTP
+        port: 80
+        path: /hello
+  restartPolicy: Never 
+```
 

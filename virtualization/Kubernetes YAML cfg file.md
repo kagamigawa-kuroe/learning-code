@@ -369,7 +369,7 @@ spec:
       port: 8080
 ```
 
-#### 重启策略
+#### Restart strategy
 
 In the previous section, kubernetes will restart the pod in which the container is located if there is a problem with the probe. This is determined by the pod restart policy.
 
@@ -397,5 +397,250 @@ spec:
         port: 80
         path: /hello
   restartPolicy: Never 
+```
+
+#### Pod scheduling
+
+​    By default, the scheduler component uses a scheduler algorithm to determine which node a POD runs on, a process that is not manually controlled. But in practice, this is not enough, because in many cases, we want to control some pods to reach some nodes, so how do we do it? This requires to understand the scheduling rules of Kubernetes for POD. Kubernetes provides four major scheduling modes:
+
+- Automatic scheduling: Which node to run on is completely calculated by scheduler through a series of algorithms
+- Directional scheduling: Node name, node selector
+- Affinity scheduling: Node affinity, Pod Affinity, and POD anti-affinity
+- Taints and toleration scheduling
+
+#### 1. Directional scheduling
+
+Directional scheduling refers to scheduling a pod to a node we want by declaring a **node name** or **node selector** on the pod. Note that the scheduling is mandatory, which means that even if the target node does not exist, it will be scheduled up, but the POD will fail.
+
+**NodeName**
+
+   Node name Is used to enforce constraints to schedule pods to nodes with the specified name. In this way, the scheduler skips scheduler's scheduling logic and dispatches pods directly to the node with the specified name。
+
+**NodeSelector**
+
+​    Node selector is used to schedule pods to nodes with the specified label added. It is implemented by kubernetes' label-selector mechanism, that is, before pod is created, scheduler uses the match node selector scheduling policy to match the label, find the target node, and then schedule pod to the target node. The matching rule is a mandatory constraint.
+
+```yaml
+# example
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-nodename
+  namespace: dev
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.17.1
+    
+  nodeName: node1 # Specifies scheduling to node1
+  # or
+  nodeSelector: 
+    nodeenv: pro # Specifies scheduling to nodes with the nodeenv=pro label
+```
+
+#### Affinity scheduling
+
+In the previous section, we introduced two directional scheduling methods that are very convenient to use, but have a problem. If there are no nodes that meet the criteria, a POD will not run, even if there is a list of nodes available in the cluster, which limits its usage scenarios.
+
+Based on the above problems, Kubernetes also provides affinity scheduling. It is extended on the basis of node selector, and can be configured to preferentially select nodes that meet the conditions for scheduling. If not, it can also be scheduled to nodes that do not meet the conditions, making scheduling more flexible.
+
+Affinity falls into three main categories
+
+- nodeAffinity: Target nodes to solve the problem of which nodes a POD can be scheduled to
+
+- podAffinity :  Target PODS to solve the problem of which existing PODS can be deployed in the same topology domain
+
+- podAntiAffinity :  Target PODS to solve the problem that pods cannot be deployed in the same topology domain as existing pods
+
+Some practical scenarios :
+
+**Affinity** : If two applications frequently interact, it is necessary to use affinity to make the two applications as close as possible to reduce performance loss caused by network communication.
+
+**Anti-affinity** : If multiple copies of applications are deployed, it is necessary to use anti-affinity to disperse application instances and distribute them on each node to improve service availability.
+
+---
+
+##### **NodeAffinity**
+
+```yaml
+pod.spec.affinity.nodeAffinity
+  requiredDuringSchedulingIgnoredDuringExecution  
+  # Node nodes must meet all the specified rules, which is equivalent to a hard limit
+  # Node selection list
+    nodeSelectorTerms  
+      matchFields   # List of node selector requirements by node field
+      matchExpressions   # List of node selector requirements by node label (recommended)
+        key    
+        values 
+        operator # Relational operator
+  preferredDuringSchedulingIgnoredDuringExecution 
+    # Preferentially schedule nodes that meet the specified rules, equivalent to soft limit 
+    preference   # A node selector item associated with the corresponding weight
+      matchFields   # List of node selector requirements by node field
+      matchExpressions   # List of node selector requirements by node label (recommended)
+        key    
+        values 
+        operator 
+	weight # The weight
+```
+
+```
+some operator :
+
+- matchExpressions:
+  - key: nodeenv              # exist
+    operator: Exists
+  - key: nodeenv              # in
+    operator: In
+    values: ["xxx","yyy"]
+  - key: nodeenv              # great than
+    operator: Gt
+    values: "xxx"
+```
+
+```yaml
+# example 1
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-nodeaffinity-required
+  namespace: dev
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.17.1
+  affinity:  #亲和性设置
+    nodeAffinity: #设置node亲和性
+      requiredDuringSchedulingIgnoredDuringExecution: # 硬限制
+        nodeSelectorTerms:
+        - matchExpressions: # 匹配env的值在["xxx","yyy"]中的标签
+          - key: nodeenv
+            operator: In
+            values: ["xxx","yyy"]
+        
+# example 2
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-nodeaffinity-preferred
+  namespace: dev
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.17.1
+  affinity:  #亲和性设置
+    nodeAffinity: #设置node亲和性
+      preferredDuringSchedulingIgnoredDuringExecution: # 软限制
+      - weight: 1
+        preference:
+          matchExpressions: # 匹配env的值在["xxx","yyy"]中的标签(当前环境没有)
+          - key: nodeenv
+            operator: In
+            values: ["xxx","yyy"]
+```
+
+**PodAffinity**
+
+Pod Affinity mainly implements the function of placing a newly created POD in the same area as a reference POD by taking the running POD as a reference.
+
+```
+pod.spec.affinity.podAffinity
+  requiredDuringSchedulingIgnoredDuringExecution  The hard limit
+    namespaces       Specify a namespace that is referenced to pod
+    topologyKey      Specify the scheduling scope
+    labelSelector    Label selector
+      matchExpressions  List of node selector requirements by node label (recommended)
+        key    
+        values 
+        operator 
+      matchLabels    
+  preferredDuringSchedulingIgnoredDuringExecution The soft limit
+    podAffinityTerm  options
+      namespaces      
+      topologyKey
+      labelSelector
+        matchExpressions  
+          key    
+          values 
+          operator
+        matchLabels 
+    weight 
+  
+The Topology key is used to specify the scheduling scope, for example:
+If kubernetes. IO /hostname is specified, node is used to distinguish between nodes
+If beta.kubernetes. IO/OS is specified, it is distinguished by the operating system type of the node
+```
+
+```yaml
+# example
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-podaffinity-required
+  namespace: dev
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.17.1
+  affinity: 
+    podAffinity: 
+      requiredDuringSchedulingIgnoredDuringExecution: 
+      - labelSelector:
+          matchExpressions: 
+          - key: podenv
+            operator: In
+            values: ["xxx","yyy"]
+        topologyKey: kubernetes.io/hostname
+```
+
+---
+
+### Taint and tolerance
+
+**Taints**
+
+​    The previous scheduling method is to stand on the pod point of view, by adding attributes to the pod, to determine whether to schedule to the specified node, in fact, we can stand on the node point of view, by adding **stain** attribute on the node, to decide whether to allow pod scheduling.
+
+​    Nodes are stained with pods and have a mutually exclusive relationship with them, thus rejecting pod scheduling and even ejecting existing pods.
+
+##### add label about taints
+
+```bash
+# set taint
+kubectl taint nodes node1 key=value:effect
+
+# remove taint
+kubectl taint nodes node1 key:effect-
+
+# remove all taint
+kubectl taint nodes node1 key-
+```
+
+- PreferNoSchedule：Kubernetes will try to avoid scheduling pods on nodes with this stain unless there are no other nodes to schedule
+- NoSchedule：Kubernetes will not dispatch pods to nodes with the stain, but will not affect existing pods on the current node
+- NoExecute：Kubernetes will not dispatch pods to nodes with the stain and will remove existing pods from nodes
+
+---
+
+##### Toleration
+
+We can add a stain to node to deny pod scheduling. However, if we want to dispatch a pod to a node with a stain, what should we do? The answer is to use tolerate.
+
+```yaml
+# example
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-toleration
+  namespace: dev
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.17.1
+  tolerations:      
+  - key: "tag"        
+    operator: "Equal" 
+    value: "heima"    
+    effect: "NoExecute"   
 ```
 
